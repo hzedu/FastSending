@@ -1,4 +1,4 @@
-version: '3.8'
+name: FastSend
 services:
   app:
     build:
@@ -9,4 +9,3 @@ services:
     environment:
       - NODE_ENV=production
     command: node server/index.mjs
-
