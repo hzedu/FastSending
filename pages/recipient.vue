@@ -169,7 +169,20 @@ async function handleObjData(obj: any) {
       // 传输单个文件
       initCurFile()
       totalFileSize.value = curFile.value.size
-    } else {
+    }else if (peerFilesInfo.value.type === 'transText'){
+        //对话框显示文本
+        toast.add({
+          severity: 'success',
+          summary: 'Success',
+          detail: '接收完毕',
+          life: 5e3
+        })
+        /// 传输完成，告知对方
+        await pdc?.sendData(JSON.stringify({ type: 'done' }))
+        status.value.isReceiving = false
+        status.value.isDone = true
+        dispose()
+    }else {
       if (!isModernFileAPISupport.value) {
         // 传输目录，但是不支持现代文件访问API，直接报错
         status.value.warn.code = -1
@@ -322,7 +335,6 @@ async function calcPeerFileHash(key: string) {
 
 // 选择要接收同步的目录
 function selectSyncDir() {
-  // @ts-ignore
   showDirectoryPicker()
     .then((dh: FileSystemDirectoryHandle) => {
       syncDirStatus.value.isWaitingSelectDir = false
@@ -365,9 +377,9 @@ function selectSyncDir() {
       }
       syncDirStatus.value.isDiffing = false
 
-      // console.log(localFileMap)
-      // console.log(peerFilesInfo.value)
-      // console.log(syncDirStatus.value)
+      //console.log(localFileMap)
+      //console.log(peerFilesInfo.value)
+      //console.log(syncDirStatus.value)
     })
     .catch((e: any) => {
       console.warn(e)
@@ -431,7 +443,6 @@ async function doReceive() {
     if (peerFilesInfo.value.type === 'transFile') {
       // 传输单个文件
       if (isModernFileAPISupport.value) {
-        // @ts-ignore
         saveFileFH = await showSaveFilePicker({
           startIn: 'downloads',
           suggestedName: curFile.value.name
@@ -444,7 +455,6 @@ async function doReceive() {
       await requestFile(curFile.value.name)
     } else if (peerFilesInfo.value.type === 'transDir') {
       // 传输目录
-      // @ts-ignore
       rootDirDH = await showDirectoryPicker()
       // 启动传输速度计算定时器
       startTime.value = Date.now()
@@ -724,6 +734,12 @@ onUnmounted(() => {
               <FilesTree
                 :file-map="syncDirStatus.fileMapAdd"
                 :disabled="status.isLock"
+                v-model:selected-key="syncDirStatus.waitAddList"
+              />
+              <p>{{ $t('hint.pleaseSelectAdd') }}</p>
+              <FilesTree
+                :file-map="syncDirStatus.fileMapUpdate"
+                :disabled="status.isLock"
                 v-model:selected-key="syncDirStatus.addKeys"
               />
               <p class="mt-2">{{ $t('hint.pleaseSelectUpdate') }}</p>
@@ -741,10 +757,22 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <template v-if='peerFilesInfo.type ==="transText"' >
+            <div class="mt-4 md:mt-6 text_box">
+                <div style="width: 90%;align-items: center;">
+                      <textarea v-model="peerFilesInfo.text" class="border border-neutral-300 dark:border-neutral-600 rounded w-full p-2 mb-4 h-32 resize-none bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100">
+
+                      </textarea>
+                </div>
+            </div>
+        </template>
       </div>
 
       <!-- 进度和操作按钮 -->
       <div class="mt-6 md:mt-0">
+
+        <template v-if='peerFilesInfo.type !=="transText"'>
         <!-- 进度 -->
         <div>
           <!-- 当前文件进度 -->
@@ -775,27 +803,29 @@ onUnmounted(() => {
             ><span class="mx-1">/</span><span>{{ humanFileSize(totalFileSize) }}</span>
           </div>
         </div>
+        </template>
 
-        <!-- 操作按钮 -->
-        <div v-if="status.warn.code === 0" class="my-16">
-          <!-- 接收和终止 -->
-          <Button
-            v-if="!status.isLock"
-            rounded
-            severity="contrast"
-            class="w-full tracking-wider"
-            :disabled="
-              !status.isConnectPeer ||
-              status.isReceiving ||
-              (peerFilesInfo.type === 'syncDir' && syncDirStatus.isDiffing)
-            "
-            @click="doReceive"
-            ><Icon name="solar:archive-down-minimlistic-line-duotone" class="mr-2" />{{
-              $t('btn.receive')
-            }}</Button
-          >
-          <!-- 终止传输 -->
-          <NuxtLink :to="localePath('/')">
+          <!-- 操作按钮 -->
+          <div v-if="status.warn.code === 0" class="my-16">
+              <template v-if='peerFilesInfo.type !=="transText"'>
+                <!-- 接收和终止 -->
+                <Button
+                  v-if="!status.isLock"
+                  rounded
+                  severity="contrast"
+                  class="w-full tracking-wider"
+                  :disabled="
+                    !status.isConnectPeer ||
+                    status.isReceiving ||
+                    (peerFilesInfo.type === 'syncDir' && syncDirStatus.isDiffing)
+                  "
+                  @click="doReceive"
+                  ><Icon name="solar:archive-down-minimlistic-line-duotone" class="mr-2" />{{
+                    $t('btn.receive')
+                  }}</Button
+                >
+                <!-- 终止传输 -->
+                <NuxtLink :to="localePath('/')">
             <Button
               v-if="status.isReceiving"
               rounded
@@ -805,28 +835,30 @@ onUnmounted(() => {
               >{{ $t('btn.terminate') }}</Button
             >
           </NuxtLink>
+              </template>
 
-          <!-- 传输完成 -->
-          <div
-            v-if="status.isDone"
-            class="flex flex-col items-center justify-center py-4 gap-4 mb-4"
-          >
-            <Icon name="solar:confetti-line-duotone" size="100" class="text-amber-500" />
-            <p class="text-xl tracking-wider">{{ $t('hint.transCompleted') }}</p>
-          </div>
-
-          <!-- 如果不支持现代文件访问，则显示手动下载按钮 -->
-          <Button
-            v-if="status.isDone && !isModernFileAPISupport"
-            rounded
-            outlined
-            severity="contrast"
-            class="w-full tracking-wider"
-            @click="downloadFile"
-            ><Icon name="solar:download-minimalistic-linear" class="mr-2" />{{
-              $t('btn.download')
-            }}</Button
-          >
+              <!-- 传输完成 -->
+              <div
+                v-if="status.isDone"
+                class="flex flex-col items-center justify-center py-4 gap-4 mb-4"
+              >
+                <Icon name="solar:confetti-line-duotone" size="100" class="text-amber-500" />
+                <p class="text-xl tracking-wider">{{ $t('hint.transCompleted') }}</p>
+              </div>
+              <template v-if='peerFilesInfo.type !=="transText"'>
+                <!-- 如果不支持现代文件访问，则显示手动下载按钮 -->
+                <Button
+                  v-if="status.isDone && !isModernFileAPISupport"
+                  rounded
+                  outlined
+                  severity="contrast"
+                  class="w-full tracking-wider"
+                  @click="downloadFile"
+                  ><Icon name="solar:download-minimalistic-linear" class="mr-2" />{{
+                    $t('btn.download')
+                  }}</Button
+                >
+              </template>
 
           <div v-if="status.isDone" class="py-6">
             <!-- buy me coffee -->
@@ -883,6 +915,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.text_box{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
 .loader {
   width: 100px;
   height: 40px;
